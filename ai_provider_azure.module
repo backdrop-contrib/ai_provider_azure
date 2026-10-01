@@ -1,0 +1,111 @@
+<?php
+
+/**
+ * @file
+ * Azure AI provider for AI core.
+ */
+
+/**
+ * Implements hook_autoload_info().
+ */
+function ai_provider_azure_autoload_info() {
+  return [
+    'AIAzureAdapter' => 'includes/AIAzureAdapter.php',
+  ];
+}
+
+/**
+ * Implements hook_ai_provider_info().
+ */
+function ai_provider_azure_ai_provider_info() {
+  return [
+    'azure' => [
+      'label' => t('Microsoft Azure AI'),
+      'description' => t('Azure OpenAI Service and Azure AI Studio Model Catalog endpoints with enterprise security and data privacy.'),
+      'class' => 'AIAzureAdapter',
+      'website' => 'https://azure.microsoft.com/products/ai-services/openai-service',
+      'key_url' => 'https://portal.azure.com/#blade/WebsitesExtension/EnterpriseApplicationBlade',
+      'models_url' => 'https://learn.microsoft.com/azure/ai-services/openai/concepts/models',
+    ],
+  ];
+}
+
+/**
+ * Implements hook_config_info().
+ */
+function ai_provider_azure_config_info() {
+  return [
+    'ai_provider_azure.settings' => [
+      'label' => t('Azure AI Settings'),
+      'group' => t('Configuration'),
+    ],
+  ];
+}
+
+/**
+ * Implements hook_ai_provider_settings_alter().
+ */
+function ai_provider_azure_ai_provider_settings_alter(&$settings, $context) {
+  if ($context['provider'] !== 'azure') {
+    return;
+  }
+
+  $config = config('ai_provider_azure.settings');
+
+  $settings['azure_resource_name'] = [
+    '#type' => 'textfield',
+    '#title' => t('Azure Resource Name'),
+    '#default_value' => $config->get('resource_name') ?: '',
+    '#description' => t('The name of your Azure OpenAI resource (e.g., <code>my-azure-resource</code> for <code>https://my-azure-resource.openai.azure.com</code>).'),
+    '#weight' => -4,
+  ];
+
+  $settings['azure_custom_endpoint'] = [
+    '#type' => 'textfield',
+    '#title' => t('Custom Endpoint (Optional)'),
+    '#default_value' => $config->get('custom_endpoint') ?: '',
+    '#description' => t('Override the default Azure endpoint URL. Useful for Azure AI Studio Model Catalog / Serverless MaaS endpoints or custom private VNet gateways.'),
+    '#weight' => -3,
+  ];
+
+  $settings['azure_api_version'] = [
+    '#type' => 'textfield',
+    '#title' => t('API Version'),
+    '#default_value' => $config->get('api_version') ?: '2024-10-21',
+    '#description' => t('Azure OpenAI REST API version (e.g. <code>2024-10-21</code>).'),
+    '#weight' => -2,
+  ];
+
+  $settings['azure_deployments'] = [
+    '#type' => 'textarea',
+    '#title' => t('Deployment Names / Model Mapping'),
+    '#default_value' => $config->get('deployments') ?: '',
+    '#description' => t('Enter one deployment per line. Format: <code>deployment_name</code> or <code>alias=deployment_name</code> (e.g. <code>gpt-4o=my-gpt4o-deployment</code>). If empty, standard model names are mapped directly.'),
+    '#rows' => 4,
+    '#weight' => -1,
+  ];
+
+  $context['form']['#submit'][] = 'ai_provider_azure_settings_submit';
+}
+
+/**
+ * Submit handler for Azure AI provider settings.
+ */
+function ai_provider_azure_settings_submit($form, &$form_state) {
+  $config = config('ai_provider_azure.settings');
+
+  if (isset($form_state['values']['azure_resource_name'])) {
+    $config->set('resource_name', trim($form_state['values']['azure_resource_name']));
+  }
+  if (isset($form_state['values']['azure_custom_endpoint'])) {
+    $config->set('custom_endpoint', trim($form_state['values']['azure_custom_endpoint']));
+  }
+  if (isset($form_state['values']['azure_api_version'])) {
+    $config->set('api_version', trim($form_state['values']['azure_api_version']));
+  }
+  if (isset($form_state['values']['azure_deployments'])) {
+    $config->set('deployments', trim($form_state['values']['azure_deployments']));
+  }
+
+  $config->save();
+}
