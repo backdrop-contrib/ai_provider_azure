@@ -113,22 +113,11 @@ class AIAzureAdapter extends AIAdapterBase {
       return $this->models;
     }
 
+    // Deployments are named by the site owner, so the configured list is the
+    // model list; there is nothing to fall back to.
     $models = [];
-    if (!empty($this->deploymentMap)) {
-      foreach ($this->deploymentMap as $alias => $deployment) {
-        $models[$alias] = ($alias !== $deployment) ? ($alias . ' (' . $deployment . ')') : $deployment;
-      }
-    }
-    else {
-      $models = [
-        'gpt-4o' => 'Azure GPT-4o',
-        'gpt-4o-mini' => 'Azure GPT-4o Mini',
-        'gpt-4-turbo' => 'Azure GPT-4 Turbo',
-        'text-embedding-3-small' => 'Azure Text Embedding 3 Small',
-        'text-embedding-3-large' => 'Azure Text Embedding 3 Large',
-        'dall-e-3' => 'Azure DALL-E 3',
-        'gpt-image-1' => 'Azure GPT Image 1',
-      ];
+    foreach ($this->deploymentMap as $alias => $deployment) {
+      $models[$alias] = ($alias !== $deployment) ? ($alias . ' (' . $deployment . ')') : $deployment;
     }
 
     asort($models);
@@ -143,41 +132,11 @@ class AIAzureAdapter extends AIAdapterBase {
     $capability = ai_normalize_capability_name($capability);
     $filtered = [];
 
-    foreach ($models as $id => $label) {
-      $ok = FALSE;
-      switch ($capability) {
-        case 'text':
-        case 'chat':
-          $ok = !preg_match('/embedding|dall-e|gpt-image|tts|whisper/i', $id);
-          break;
-
-        case 'tool_calling':
-        case 'vision':
-          $ok = (bool) preg_match('/gpt-4|o1|o3/i', $id);
-          break;
-
-        case 'thinking':
-          $ok = (bool) preg_match('/o1|o3|r1|reason/i', $id);
-          break;
-
-        case 'embeddings':
-        case 'embedding':
-          $ok = (bool) preg_match('/embedding/i', $id);
-          break;
-
-        case 'image':
-          $ok = (bool) preg_match('/dall-e|gpt-image/i', $id);
-          break;
-
-        case 'moderation':
-        case 'stt':
-          $ok = FALSE;
-          break;
-      }
-
-      if ($ok) {
-        $filtered[$id] = $label;
-      }
+    // Deployment names say nothing reliable about the model behind them.
+    // Every deployment is offered for chat and tool calling; embeddings,
+    // images, vision and thinking are assigned on the Model capabilities page.
+    if (in_array($capability, ['text', 'tool_calling'], TRUE)) {
+      $filtered = $models;
     }
 
     backdrop_alter('ai_model_capabilities', $filtered, $capability, $this);
@@ -185,19 +144,28 @@ class AIAzureAdapter extends AIAdapterBase {
   }
 
   /**
-   * Adjust chat parameters for o-series reasoning deployments.
+   * POST a chat payload, retrying once in reasoning-model form if rejected.
    *
-   * o1/o3/o4 deployments reject temperature and max_tokens; they take
-   * max_completion_tokens instead. Matched on the alias or deployment name.
+   * Reasoning deployments (o-series, gpt-5 and later) reject max_tokens and
+   * any non-default temperature. Which deployments those are can't be told
+   * from their names, so the error decides: a 400 naming either parameter is
+   * retried with max_completion_tokens and no temperature.
    */
-  protected function applyReasoningParams(array &$payload, string $model, string $deployment): void {
-    if (!preg_match('/(^|[^a-z0-9])o[1-9](-|$|[^a-z0-9])/i', $model . ' ' . $deployment)) {
-      return;
+  protected function postChat(string $url, array $payload, int $timeout = 300): array {
+    try {
+      return $this->makeRequest($url, $payload, [], 'POST', $timeout);
     }
-    unset($payload['temperature']);
-    if (isset($payload['max_tokens'])) {
-      $payload['max_completion_tokens'] = $payload['max_tokens'];
-      unset($payload['max_tokens']);
+    catch (\Exception $e) {
+      $message = $e->getMessage();
+      if (strpos($message, 'API error (400)') !== 0 || !preg_match('/max_tokens|temperature/', $message)) {
+        throw $e;
+      }
+      unset($payload['temperature']);
+      if (isset($payload['max_tokens'])) {
+        $payload['max_completion_tokens'] = $payload['max_tokens'];
+        unset($payload['max_tokens']);
+      }
+      return $this->makeRequest($url, $payload, [], 'POST', $timeout);
     }
   }
 
@@ -258,8 +226,6 @@ class AIAzureAdapter extends AIAdapterBase {
     if ((int) $max_tokens > 0) {
       $payload['max_tokens'] = (int) $max_tokens;
     }
-    $this->applyReasoningParams($payload, $model, $deployment);
-
     if (!empty($context_extra['response_format'])) {
       $payload['response_format'] = $context_extra['response_format'];
     }
@@ -290,7 +256,7 @@ class AIAzureAdapter extends AIAdapterBase {
         });
       }
 
-      $result = $this->makeRequest($url, $payload, [], 'POST', 300);
+      $result = $this->postChat($url, $payload);
       return trim($result['choices'][0]['message']['content'] ?? $result['choices'][0]['text'] ?? '');
     }
     catch (\Exception $e) {
@@ -318,10 +284,8 @@ class AIAzureAdapter extends AIAdapterBase {
     if ((int) $max_tokens > 0) {
       $payload['max_tokens'] = (int) $max_tokens;
     }
-    $this->applyReasoningParams($payload, $model, $deployment);
-
     try {
-      $result = $this->makeRequest($url, $payload, [], 'POST', 300);
+      $result = $this->postChat($url, $payload);
       return $this->normalizeToolResponse($result);
     }
     catch (\Exception $e) {
@@ -370,18 +334,10 @@ class AIAzureAdapter extends AIAdapterBase {
     if ($this->usesV1Endpoint()) {
       $payload['model'] = $deployment;
     }
-    // As on OpenAI: only DALL-E takes response_format, only DALL-E 3 takes
-    // quality/style values in this form; gpt-image models reject them.
-    if (stripos($model, 'dall-e') !== FALSE && $response_format) {
-      $payload['response_format'] = $response_format;
-    }
-    if (stripos($model, 'dall-e-3') !== FALSE) {
-      $payload['quality'] = $quality;
-      $payload['style'] = $style;
-    }
-    if (!empty($output_format) && stripos($model, 'gpt-image') !== FALSE) {
-      $payload['output_format'] = $output_format;
-    }
+    // response_format, quality, style and output_format are each rejected by
+    // some image model family, and a deployment name doesn't say which family
+    // it runs. Callers read both b64_json and URL responses, so the defaults
+    // are enough.
 
     try {
       // Return the raw envelope (data[0].b64_json / data[0].url) like the

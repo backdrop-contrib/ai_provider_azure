@@ -92,19 +92,22 @@ function ai_provider_azure_ai_provider_settings_alter(&$settings, $context) {
  * Submit handler for Azure AI provider settings.
  */
 function ai_provider_azure_settings_submit($form, &$form_state) {
+  // The providers form uses #tree, so these values sit under the provider's
+  // settings container, not at the top level.
+  $values = $form_state['values']['providers']['azure_settings'] ?? [];
   $config = config('ai_provider_azure.settings');
 
-  if (isset($form_state['values']['azure_resource_name'])) {
-    $config->set('resource_name', trim($form_state['values']['azure_resource_name']));
+  if (isset($values['azure_resource_name'])) {
+    $config->set('resource_name', trim($values['azure_resource_name']));
   }
-  if (isset($form_state['values']['azure_custom_endpoint'])) {
-    $config->set('custom_endpoint', trim($form_state['values']['azure_custom_endpoint']));
+  if (isset($values['azure_custom_endpoint'])) {
+    $config->set('custom_endpoint', trim($values['azure_custom_endpoint']));
   }
-  if (isset($form_state['values']['azure_api_version'])) {
-    $config->set('api_version', trim($form_state['values']['azure_api_version']));
+  if (isset($values['azure_api_version'])) {
+    $config->set('api_version', trim($values['azure_api_version']));
   }
-  if (isset($form_state['values']['azure_deployments'])) {
-    $config->set('deployments', trim($form_state['values']['azure_deployments']));
+  if (isset($values['azure_deployments'])) {
+    $config->set('deployments', trim($values['azure_deployments']));
   }
 
   $config->save();
