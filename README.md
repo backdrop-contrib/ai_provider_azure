@@ -10,12 +10,12 @@ route to.
 
 | Operation | Supported | Notes |
 |---|---|---|
-| Chat | Yes | Streaming supported. JSON mode and JSON schema responses supported. |
+| Chat | Yes | Streaming supported. JSON mode and JSON schema responses supported. If a reasoning deployment rejects `max_tokens` or `temperature`, the request is retried once with `max_completion_tokens` and no temperature. |
 | Completions | Yes | Uses the deployment's `completions` endpoint. |
-| Tool calling | Yes | GPT-4 / o-series deployments. |
-| Vision | Yes | GPT-4 / o-series deployments. |
-| Embeddings | Yes | `text-embedding-*` deployments. |
-| Image generation | Yes | DALL-E deployments. |
+| Tool calling | Yes | Every deployment is offered. |
+| Vision | Yes | Assign deployments on the Model capabilities page. |
+| Embeddings | Yes | Assign deployments on the Model capabilities page. |
+| Image generation | Yes | Assign deployments on the Model capabilities page. Sent with prompt, size and `n` only; gpt-image models need API version `2025-04-01-preview` or later. |
 | Moderation | No | |
 | Speech-to-text | No | |
 
@@ -31,12 +31,13 @@ settings at `admin/config/ai/settings` add:
   OpenAI-compatible base; one containing `/openai/deployments` is used as-is.
 - **API Version** — the `api-version` query parameter (default `2024-10-21`).
 - **Deployment Names / Model Mapping** — one per line, either
-  `deployment_name` or `alias=deployment_name`. These become the model list.
-  When empty, a fixed list of standard model names is offered and each is used
-  directly as the deployment name.
+  `deployment_name` or `alias=deployment_name`. These become the model list;
+  with none configured the provider offers no models.
 
-Capabilities are inferred from the model or alias name, so name aliases after
-the underlying model (for example `gpt-4o=my-gpt4o-deployment`).
+Deployment names say nothing reliable about the model behind them, so every
+deployment is offered for chat and tool calling. Use the Model capabilities
+page (`admin/config/ai/settings/capabilities/azure`) to mark embedding, image
+and vision deployments.
 
 ## Installation
 
